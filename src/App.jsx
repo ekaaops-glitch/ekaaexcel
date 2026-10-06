@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import ReCAPTCHA from "react-google-recaptcha";
 import "./App.css";
 
 const EMAIL = "hello@ekaaexcel.com";
 const FORMSPREE_ENDPOINT = "https://formspree.io/f/xeaeqqyb";
+const RECAPTCHA_SITE_KEY = "6Lfl_uEtAAAAAN_PUuhA9_94HkkncGJcu_eRlP47";// <-- paste your v2 site key here
 
 /* ---------- Icons (inline SVG, no package needed) ---------- */
 const P = {
@@ -121,7 +123,7 @@ const steps = [
 const faqs = [
   [
     "What Excel services do you provide?",
-    "We provide customized Excel solutions including dashboards, reports, automation, formulas, data analysis, VBA, Power Query, templates, and more.",
+    "We provide customized Excel solutions including dashboards, reports, automation, formulas, data analysis, templates, and more.",
   ],
   [
     "How does your On-Demand Excel service work?",
@@ -155,6 +157,9 @@ export default function App() {
   const [scrolled, setScrolled] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [status, setStatus] = useState("idle");
+  const [captchaToken, setCaptchaToken] = useState(null);
+  const [captchaError, setCaptchaError] = useState(false);
+  const recaptchaRef = useRef(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -188,22 +193,37 @@ export default function App() {
     });
   };
 
-  /* ---------- FORMSPREE SUBMISSION ---------- */
+  const resetCaptcha = () => {
+    recaptchaRef.current?.reset();
+    setCaptchaToken(null);
+  };
+
+  /* ---------- FORMSPREE SUBMISSION (with reCAPTCHA) ---------- */
 
   const submit = async (e) => {
     e.preventDefault();
 
     if (status === "sending") return;
 
+    // Captcha must be solved on every submission
+    if (!captchaToken) {
+      setCaptchaError(true);
+      return;
+    }
+
+    setCaptchaError(false);
     setStatus("sending");
 
     try {
+      const body = new FormData(e.target);
+      body.set("g-recaptcha-response", captchaToken);
+
       const response = await fetch(FORMSPREE_ENDPOINT, {
         method: "POST",
         headers: {
           Accept: "application/json",
         },
-        body: new FormData(e.target),
+        body,
       });
 
       const data = await response.json();
@@ -220,6 +240,9 @@ export default function App() {
     } catch (error) {
       console.error("Submission error:", error);
       setStatus("error");
+    } finally {
+      // Tokens are single-use: always force a fresh captcha next time
+      resetCaptcha();
     }
   };
 
@@ -616,7 +639,11 @@ export default function App() {
                 <button
                   type="button"
                   className="btn ghost"
-                  onClick={() => setStatus("idle")}
+                  onClick={() => {
+                    setCaptchaToken(null);
+                    setCaptchaError(false);
+                    setStatus("idle");
+                  }}
                 >
                   Send another request
                 </button>
@@ -677,6 +704,26 @@ export default function App() {
                     onChange={change}
                   />
                 </label>
+
+                {/* reCAPTCHA */}
+                <div className="captcha">
+                  <ReCAPTCHA
+                    ref={recaptchaRef}
+                    sitekey={RECAPTCHA_SITE_KEY}
+                    onChange={(token) => {
+                      setCaptchaToken(token);
+                      if (token) setCaptchaError(false);
+                    }}
+                    onExpired={() => setCaptchaToken(null)}
+                    onErrored={() => setCaptchaToken(null)}
+                  />
+                </div>
+
+                {captchaError && (
+                  <p className="form-err" role="alert">
+                    Please tick "I'm not a robot" before submitting.
+                  </p>
+                )}
 
                 {status === "error" && (
                   <p className="form-err" role="alert">
